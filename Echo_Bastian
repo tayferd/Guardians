@@ -1,0 +1,102 @@
+import tkinter as tk
+from tkinter import messagebox
+from scapy.all import sniff, IP, TCP, UDP, send
+import matplotlib.pyplot as plt
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+import threading
+import time
+from collections import Counter, defaultdict
+
+# Set up packet tracking and counters
+attack_counter = Counter()
+blocked_ips = set()
+suspicious_ip_counter = defaultdict(int)
+
+# Define GUI-related items
+root = tk.Tk()
+root.title("Reflective Guardian Dashboard")
+
+# GUI Elements
+log_text = tk.Text(root, height=15, width=80)
+log_text.pack()
+canvas_frame = tk.Frame(root)
+canvas_frame.pack()
+response_mode = tk.StringVar(value="Reflect")
+response_options = ["Reflect", "Mirror", "Amplify"]
+response_menu = tk.OptionMenu(root, response_mode, *response_options)
+response_menu.pack()
+
+# Create the plotting area
+fig, ax = plt.subplots(figsize=(5, 3))
+canvas = FigureCanvasTkAgg(fig, master=canvas_frame)
+canvas.get_tk_widget().pack()
+
+# Function to update the graph with attack statistics
+def update_graph():
+    ax.clear()
+    ax.bar(attack_counter.keys(), attack_counter.values())
+    ax.set_title("Attack Protocol Distribution")
+    ax.set_ylabel("Number of Packets")
+    canvas.draw()
+
+# Function to log activity in the GUI
+def log_activity(message):
+    log_text.insert(tk.END, message + "\n")
+    log_text.see(tk.END)
+
+# Function to define retaliation strategies
+def retaliate_packet(packet):
+    ip_layer = IP(src=packet[IP].dst, dst=packet[IP].src)
+    if TCP in packet:
+        sport, dport = packet[TCP].dport, packet[TCP].sport
+        protocol = "TCP"
+    elif UDP in packet:
+        sport, dport = packet[UDP].dport, packet[UDP].sport
+        protocol = "UDP"
+    else:
+        return
+    
+    response = None
+    mode = response_mode.get()
+    if mode == "Reflect":
+        response = ip_layer / packet[protocol](sport=sport, dport=dport) / packet[protocol].payload
+    elif mode == "Mirror":
+        response = ip_layer / packet[protocol](sport=sport, dport=dport) / packet[protocol].payload * 2
+    elif mode == "Amplify":
+        response = ip_layer / packet[protocol](sport=sport, dport=dport) / (packet[protocol].payload * 4)
+
+    if response:
+        send(response, verbose=False)
+        log_activity(f"Retaliated ({mode}) packet back to {packet[IP].src}")
+
+# Function to check if a packet is suspicious
+def is_suspicious(packet):
+    if IP in packet:
+        ip_src = packet[IP].src
+        protocol = "TCP" if TCP in packet else "UDP" if UDP in packet else None
+        if protocol and (packet[protocol].dport in [135, 139, 445] or ip_src not in ["192.168.1.1", "8.8.8.8"]):
+            suspicious_ip_counter[ip_src] += 1
+            if suspicious_ip_counter[ip_src] > 3 and ip_src not in blocked_ips:
+                blocked_ips.add(ip_src)
+                log_activity(f"IP {ip_src} has been blacklisted due to repeated attacks.")
+            return True
+    return False
+
+# Function to process packets
+def process_packet(packet):
+    if is_suspicious(packet):
+        attack_counter["TCP" if TCP in packet else "UDP"] += 1
+        retaliate_packet(packet)
+        update_graph()
+
+# Function to start packet sniffing in a thread
+def start_sniffing():
+    sniff(iface="eth0", prn=process_packet, store=0)
+
+# Start sniffing in a separate thread to keep the GUI responsive
+sniff_thread = threading.Thread(target=start_sniffing)
+sniff_thread.daemon = True
+sniff_thread.start()
+
+# Start the GUI event loop
+root.mainloop()
