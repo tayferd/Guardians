@@ -1,0 +1,51 @@
+from scapy.all import sniff, IP, TCP, UDP, send
+
+# Define criteria for suspicious packets (e.g., unusual ports)
+SUSPICIOUS_PORTS = [135, 139, 445, 6667]  # Commonly targeted ports for attacks
+MALICIOUS_PAYLOAD_INDICATORS = [b"malicious", b"attack", b"exploit"]  # Example indicators (simplified)
+
+# Function to check if a packet is suspicious
+def is_suspicious(packet):
+    if IP in packet:
+        if TCP in packet or UDP in packet:
+            # Check if the destination port is in the suspicious list
+            if packet[TCP].dport in SUSPICIOUS_PORTS or packet[UDP].dport in SUSPICIOUS_PORTS:
+                return True
+            # Check if the payload contains known malicious indicators
+            if packet.haslayer(Raw) and any(indicator in packet[Raw].load for indicator in MALICIOUS_PAYLOAD_INDICATORS):
+                return True
+    return False
+
+# Function to reflect a packet back to the sender
+def reflect_packet(packet):
+    if IP in packet:
+        # Reverse the IP and port details
+        ip_layer = IP(src=packet[IP].dst, dst=packet[IP].src)
+        if TCP in packet:
+            reflected_packet = ip_layer / TCP(sport=packet[TCP].dport, dport=packet[TCP].sport) / packet[TCP].payload
+        elif UDP in packet:
+            reflected_packet = ip_layer / UDP(sport=packet[UDP].dport, dport=packet[UDP].sport) / packet[UDP].payload
+        else:
+            # Unsupported protocol, do nothing
+            return
+
+        # Send the reflected packet back to the sender
+        send(reflected_packet, verbose=False)
+        print(f"Reflected packet back to {packet[IP].src}")
+
+# Function to process and potentially reflect packets
+def process_packet(packet):
+    if is_suspicious(packet):
+        print(f"Suspicious packet detected from {packet[IP].src}. Reflecting...")
+        reflect_packet(packet)
+    else:
+        print(f"Normal packet: {packet.summary()}")
+
+# Main function to start monitoring and reflecting
+def start_reflective_guardian(interface="eth0"):
+    print("Starting reflective guardian (proof of concept)...")
+    sniff(iface=interface, prn=process_packet, store=0)
+
+if __name__ == "__main__":
+    # Replace 'eth0' with the appropriate network interface name for your setup
+    start_reflective_guardian(interface="eth0")
