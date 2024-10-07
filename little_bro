@@ -1,0 +1,55 @@
+import os
+import psutil
+import time
+import tkinter as tk
+from tkinter import messagebox
+
+# Define the legitimate paths for verification
+LEGITIMATE_PATHS = [
+    'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
+    'C:\\Program Files\\Mozilla Firefox\\firefox.exe',
+    'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe',
+    'C:\\Program Files (x86)\\Microsoft\\Office\\root\\Office16\\WINWORD.EXE'  # Example path
+    # Add more paths as needed for other applications
+]
+
+# Function to check if a process is legitimate
+def is_legit_process(process):
+    try:
+        process_path = process.exe()
+        if process_path and os.path.abspath(process_path) in LEGITIMATE_PATHS:
+            return True
+        return False
+    except (psutil.AccessDenied, psutil.NoSuchProcess):
+        return False
+
+# Function to monitor for new processes and verify them
+def monitor_processes():
+    verified_pids = set()
+    while True:
+        # Iterate over currently running processes
+        for process in psutil.process_iter(['pid', 'name', 'exe']):
+            if process.pid not in verified_pids:
+                if not is_legit_process(process):
+                    process.terminate()
+                    show_warning(f"Unauthorized program '{process.name()}' detected and terminated.")
+                else:
+                    verified_pids.add(process.pid)
+        
+        time.sleep(2)  # Check every 2 seconds
+
+# Function to show a warning message when unauthorized program is detected
+def show_warning(message):
+    root = tk.Tk()
+    root.withdraw()  # Hide the main tkinter window
+    messagebox.showwarning("Unauthorized Program", message)
+    root.destroy()
+
+# Main function to start the guardian process monitor
+def start_guardian():
+    # Run the process monitoring loop
+    print("Guardian is running. Monitoring processes...")
+    monitor_processes()
+
+if __name__ == "__main__":
+    start_guardian()
