@@ -1,0 +1,79 @@
+import subprocess
+import os
+import psutil
+from scapy.all import sniff, IP, TCP, UDP
+import logging
+import tkinter as tk
+from tkinter import messagebox
+
+# Setup logging
+logging.basicConfig(filename="firewall_log.txt", level=logging.INFO,
+                    format="%(asctime)s - %(message)s")
+
+# Define rules for IP addresses, ports, and protocols
+ALLOWED_IPS = ["192.168.1.10", "8.8.8.8"]  # Trusted IP addresses
+BLOCKED_PORTS = [23, 135, 139, 445]  # Block Telnet and other vulnerable ports
+
+# Function to execute netsh command
+def execute_netsh(command):
+    try:
+        subprocess.run(["netsh", "advfirewall"] + command.split(), check=True, shell=True)
+        logging.info(f"Executed command: netsh advfirewall {command}")
+    except subprocess.CalledProcessError as e:
+        logging.error(f"Error executing command {command}: {e}")
+
+# Function to add a firewall rule
+def add_firewall_rule(name, action, protocol, port):
+    command = f"firewall add rule name={name} dir=in action={action} protocol={protocol} localport={port}"
+    execute_netsh(command)
+    logging.info(f"Added firewall rule: {name} - {action} {protocol} {port}")
+
+# Function to delete a firewall rule
+def delete_firewall_rule(name):
+    command = f"firewall delete rule name={name}"
+    execute_netsh(command)
+    logging.info(f"Deleted firewall rule: {name}")
+
+# Function to list current firewall rules
+def list_firewall_rules():
+    command = "firewall show rule name=all"
+    result = subprocess.run(["netsh", "advfirewall"] + command.split(), capture_output=True, text=True)
+    print(result.stdout)
+    logging.info("Listed firewall rules")
+
+# Function to log and alert on suspicious activity
+def alert_suspicious_activity(message):
+    logging.warning(message)
+    root = tk.Tk()
+    root.withdraw()  # Hide the tkinter window
+    messagebox.showwarning("Suspicious Activity Detected", message)
+    root.destroy()
+
+# Function to check if packet is suspicious
+def is_suspicious_packet(packet):
+    if IP in packet:
+        ip_src = packet[IP].src
+        if ip_src not in ALLOWED_IPS:
+            return True  # Suspicious IP not allowed
+        if TCP in packet and packet[TCP].dport in BLOCKED_PORTS:
+            return True  # Suspicious port detected
+    return False
+
+# Function to process packets and dynamically adjust firewall
+def process_packet(packet):
+    if is_suspicious_packet(packet):
+        alert_suspicious_activity(f"Suspicious packet from {packet[IP].src} on port {packet[TCP].dport}")
+        # Block the suspicious IP by adding a firewall rule
+        add_firewall_rule(name=f"Block_{packet[IP].src}", action="block", protocol="TCP", port=str(packet[TCP].dport))
+    else:
+        logging.info(f"Allowed packet: {packet.summary()}")
+
+# Main function to start the firewall and packet monitor
+def start_firewall_monitor(interface="Ethernet"):
+    print("Starting extreme firewall monitor...")
+    list_firewall_rules()
+    sniff(iface=interface, prn=process_packet, store=0)
+
+if __name__ == "__main__":
+    # Start the extreme firewall monitor
+    start_firewall_monitor(interface="Ethernet")
